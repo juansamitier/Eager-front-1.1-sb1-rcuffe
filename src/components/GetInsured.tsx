@@ -1,39 +1,47 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowRightLeft, Loader2 } from 'lucide-react';
+import { useApproveUSDe } from '../hooks/useApproveUSDe';
+import { useDepositUSDe } from '../hooks/useDepositUSDe';
+import { useRedeemEUSDe } from '../hooks/useRedeemEUSDe';
+import { useCheckAllowance } from "../hooks/useCheckAllowance";
+import { useEUSDeBalance } from '../hooks/useEUSDeBalance';
+import toast from 'react-hot-toast';
 
 export default function GetInsured() {
+
   const [isMinting, setIsMinting] = useState(true);
   const [amount, setAmount] = useState<string>('');
   const [hasAllowance, setHasAllowance] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
-  const [isMintingTx, setIsMintingTx] = useState(false);
-
-  // Mock function to check allowance - replace with actual contract call
-  const checkAllowance = async () => {
-    // Simulate contract call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    return false;
-  };
+  const { amount: allowance, isLoading: isAllowanceLoading, refetch: refetchAllowance } = useCheckAllowance();
+  const { handleApprove, isLoading: isApproveLoading } = useApproveUSDe();
+  const { handleDeposit, isLoading: isDepositLoading } = useDepositUSDe();
+  const { handleRedeem, isLoading: isRedeemLoading } = useRedeemEUSDe();
+  const { amount: eusdeBalance, refetch: refetchBalance } = useEUSDeBalance();
 
   useEffect(() => {
-    const fetchAllowance = async () => {
-      const allowance = await checkAllowance();
-      setHasAllowance(allowance);
+    const checkAllowance = async () => {
+      if (amount && allowance) {
+        const hasEnoughAllowance = parseFloat(allowance) >= parseFloat(amount);
+        setHasAllowance(hasEnoughAllowance);
+      }
     };
 
-    if (amount && parseFloat(amount) > 0) {
-      fetchAllowance();
-    }
-  }, [amount]);
+    checkAllowance();
+  }, [amount, allowance]);
 
-  const handleApprove = async () => {
+  const onApprove = async () => {
     if (!amount || parseFloat(amount) <= 0) return;
     
     setIsApproving(true);
     try {
-      // Simulate approval transaction
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      setHasAllowance(true);
+      const success = await handleApprove(amount);
+      if (success) {
+        await refetchAllowance();
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await refetchAllowance();
+        setHasAllowance(true);
+      }
     } catch (error) {
       console.error('Approval failed:', error);
     } finally {
@@ -41,21 +49,92 @@ export default function GetInsured() {
     }
   };
 
-  const handleMint = async () => {
+  const onMint = async () => {
     if (!amount || parseFloat(amount) <= 0 || !hasAllowance) return;
     
-    setIsMintingTx(true);
     try {
-      // Simulate mint transaction
+      await handleDeposit(amount);
+      setAmount('');
+      setHasAllowance(false);
+      
+      // Add multiple refetch attempts with delays
+      await refetchBalance();
+      // Wait 2 seconds and refetch again
       await new Promise(resolve => setTimeout(resolve, 2000));
+      await refetchBalance();
+      // Wait 2 more seconds and refetch one last time
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await refetchBalance();
+
+      toast.success(`Successfully minted ${amount} esUSDe!`, {
+        duration: 4000,
+        position: 'bottom-right',
+        style: {
+          background: '#1a2e44',
+          color: '#fff',
+          border: '1px solid rgba(56, 114, 224, 0.2)',
+        },
+      });
     } catch (error) {
       console.error('Minting failed:', error);
-    } finally {
-      setIsMintingTx(false);
+      toast.error('Failed to mint esUSDe. Please try again.', {
+        duration: 4000,
+        position: 'bottom-right',
+        style: {
+          background: '#1a2e44',
+          color: '#fff',
+          border: '1px solid rgba(224, 56, 56, 0.2)',
+        },
+      });
+    }
+  };
+
+  const onRedeem = async () => {
+    if (!amount || parseFloat(amount) <= 0) return;
+
+    try {
+      const success = await handleRedeem(amount);
+      if (success) {
+        setAmount('');
+        
+        // Add multiple refetch attempts with delays
+        await refetchBalance();
+        // Wait 2 seconds and refetch again
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await refetchBalance();
+        // Wait 2 more seconds and refetch one last time
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await refetchBalance();
+
+        toast.success(`Successfully redeemed ${amount} sUSDe!`, {
+          duration: 4000,
+          position: 'bottom-right',
+          style: {
+            background: '#1a2e44',
+            color: '#fff',
+            border: '1px solid rgba(56, 114, 224, 0.2)',
+          },
+        });
+      } else {
+        throw new Error('Redemption failed');
+      }
+    } catch (error) {
+      console.error('Redemption failed:', error);
+      toast.error('Failed to redeem sUSDe. Please try again.', {
+        duration: 4000,
+        position: 'bottom-right',
+        style: {
+          background: '#1a2e44',
+          color: '#fff',
+          border: '1px solid rgba(224, 56, 56, 0.2)',
+        },
+      });
     }
   };
 
   const isValidAmount = amount && parseFloat(amount) > 0;
+
+  const hasInsufficientBalance = !isMinting && parseFloat(amount) > parseFloat(eusdeBalance);
 
   return (
     <div className="bg-blue-900/20 backdrop-blur-md rounded-2xl p-6 text-white">
@@ -83,9 +162,20 @@ export default function GetInsured() {
           <div className="relative">
             <input
               type="number"
-              placeholder="0.0"
+              min="0"
+              step="any"
+              placeholder="0"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (parseFloat(value) < 0) return;
+                setAmount(value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === '-' || e.key === 'e') {
+                  e.preventDefault();
+                }
+              }}
               className="w-full bg-blue-800/20 border border-blue-700/30 rounded-lg px-4 py-3 text-white placeholder-blue-300/50 focus:outline-none focus:border-blue-600/50"
             />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-300/80">
@@ -98,7 +188,7 @@ export default function GetInsured() {
           <div className="flex justify-between text-sm mb-2">
             <span className="text-blue-200/80">You will receive</span>
             <span className="text-white">
-              {isValidAmount ? amount : '0.0'} {isMinting ? 'esUSDe' : 'sUSDe'}
+              {isValidAmount ? amount : '0'} {isMinting ? 'esUSDe' : 'sUSDe'}
             </span>
           </div>
           <div className="flex justify-between text-sm mb-2">
@@ -115,19 +205,19 @@ export default function GetInsured() {
           <div className="space-y-4">
             {!hasAllowance && (
               <button
-                onClick={handleApprove}
-                disabled={isApproving || !isValidAmount}
+                onClick={onApprove}
+                disabled={isApproveLoading || !isValidAmount || isAllowanceLoading || isApproving}
                 className={`w-full py-4 rounded-lg font-medium transition-all flex items-center justify-center
-                  ${isApproving || !isValidAmount
+                  ${isApproveLoading || !isValidAmount || isAllowanceLoading || isApproving
                     ? 'bg-blue-800/30 text-blue-300/50 cursor-not-allowed'
                     : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white'
                   }
                 `}
               >
-                {isApproving ? (
+                {(isApproveLoading || isAllowanceLoading || isApproving) ? (
                   <>
                     <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                    Approving...
+                    {isApproveLoading || isApproving ? 'Approving...' : 'Checking allowance...'}
                   </>
                 ) : (
                   'Approve sUSDe'
@@ -136,15 +226,15 @@ export default function GetInsured() {
             )}
             
             <button
-              onClick={handleMint}
-              disabled={!hasAllowance || isMintingTx || !isValidAmount}
+              onClick={onMint}
+              disabled={!hasAllowance || isDepositLoading || !isValidAmount}
               className={`w-full py-4 rounded-lg font-medium transition-all flex items-center justify-center
-                ${!hasAllowance || isMintingTx || !isValidAmount
+                ${!hasAllowance || isDepositLoading || !isValidAmount
                   ? 'bg-blue-800/30 text-blue-300/50 cursor-not-allowed'
                   : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white'
                 }`}
             >
-              {isMintingTx ? (
+              {isDepositLoading ? (
                 <>
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   Minting...
@@ -156,14 +246,24 @@ export default function GetInsured() {
           </div>
         ) : (
           <button 
-            className={`w-full py-4 rounded-lg font-medium transition-all
-              ${!isValidAmount
+            onClick={onRedeem}
+            className={`w-full py-4 rounded-lg font-medium transition-all flex items-center justify-center
+              ${!isValidAmount || isRedeemLoading || hasInsufficientBalance
                 ? 'bg-blue-800/30 text-blue-300/50 cursor-not-allowed'
                 : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white'
               }`}
-            disabled={!isValidAmount}
+            disabled={!isValidAmount || isRedeemLoading || hasInsufficientBalance}
           >
-            Redeem esUSDe
+            {isRedeemLoading ? (
+              <>
+                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                Redeeming...
+              </>
+            ) : hasInsufficientBalance ? (
+              'Insufficient esUSDe balance'
+            ) : (
+              'Redeem esUSDe'
+            )}
           </button>
         )}
 

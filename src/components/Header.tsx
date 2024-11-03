@@ -1,5 +1,6 @@
 import React from 'react';
 import { BookOpen } from 'lucide-react';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 interface HeaderProps {
   setActiveTab: (tab: string) => void;
@@ -55,9 +56,7 @@ export default function Header({ setActiveTab }: HeaderProps) {
               <BookOpen className="w-4 h-4 mr-2" />
               Docs
             </a>
-            <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-blue-50 rounded-lg font-medium transition-colors">
-              Connect Wallet
-            </button>
+            <ConnectButton />
           </div>
         </div>
       </div>

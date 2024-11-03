@@ -5,6 +5,7 @@ import GetInsured from './components/GetInsured';
 import Earn from './components/Earn';
 import RewardCalculator from './components/RewardCalculator';
 import HowItWorks from './components/HowItWorks';
+import { Toaster } from 'react-hot-toast';
 
 function App() {
   const [activeTab, setActiveTab] = useState('insured');
@@ -70,6 +71,7 @@ function App() {
           {activeTab === 'how-it-works' && <HowItWorks />}
         </div>
       </main>
+      <Toaster />
     </div>
   );
 }
